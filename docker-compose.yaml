@@ -1,0 +1,66 @@
+x-common-var: &common-var
+  BROKER_URL: ${BROKER_URL}
+
+networks:
+  celery:
+
+services:
+  redis:
+    image: redis:7
+    container_name: redis
+    hostname: redis
+    healthcheck:
+      test: redis-cli --raw incr ping
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+  redis-insight:
+    image: redis/redisinsight:2.62
+    ports:
+      - 5540:5540
+    depends_on:
+      - redis
+  flower:
+    image: mher/flower:2.0
+    container_name: flower
+    hostname: flower
+    ports:
+      - 5555:5555
+    environment:
+      - CELERY_BROKER_URL=${BROKER_URL}
+      - FLOWER_BASIC_AUTH=${FLOWER_USER}:${FLOWER_PASS}
+    depends_on:
+      - redis
+    healthcheck:
+      test: wget --spider http://${FLOWER_USER}:${FLOWER_PASS}@localhost:5555/healthcheck || exit 1
+      interval: 30s
+      timeout: 10s
+      retries: 3
+  worker:
+    build:
+      context: worker
+      dockerfile: worker.Dockerfile
+    deploy:
+      replicas: 3
+    environment:
+      <<: *common-var
+    depends_on:
+      - redis
+      - flower
+    restart: unless-stopped
+  app:
+    build:
+      context: worker
+      dockerfile: producer.Dockerfile
+    ports:
+      - 5000:${APP_PORT}
+    environment:
+      <<: *common-var
+      APP_PORT: ${APP_PORT}
+    depends_on:
+      - redis
+      - flower
+      - worker
+    restart: unless-stopped
+  
